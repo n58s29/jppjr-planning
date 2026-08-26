@@ -155,8 +155,12 @@ dialog .sub{font-size:.82rem;color:var(--ink-2)}
     </div>
     <form id="form-auth">
       <div id="f-pseudo" class="hidden">
-        <label>Ton pseudo dans la team</label>
-        <input id="in-pseudo" placeholder="Fly, Gaëtan, Victor…" maxlength="20" autocomplete="nickname">
+        <label>Qui es-tu dans la team ?</label>
+        <select id="in-pseudo-select"><option value="">Chargement…</option></select>
+        <div id="f-pseudo-libre" class="hidden">
+          <label>Ton pseudo</label>
+          <input id="in-pseudo" placeholder="Ton prénom / surnom" maxlength="20" autocomplete="nickname">
+        </div>
       </div>
       <label>Email</label>
       <input id="in-email" type="email" required autocomplete="email" placeholder="toi@exemple.fr">
@@ -341,9 +345,33 @@ function setAuthMode(m){
   $('tab-signup').classList.toggle('on', m === 'signup');
   $('f-pseudo').classList.toggle('hidden', m === 'login');
   $('f-code').classList.toggle('hidden', m === 'login');
-  $('in-pseudo').required = $('in-code').required = (m === 'signup');
+  $('in-code').required = (m === 'signup');
   $('btn-auth').textContent = m === 'login' ? 'Se connecter' : 'Rejoindre la team';
   $('auth-msg').className = 'msg';
+  if (m === 'signup') loadPreseed();
+}
+
+/* Profils pré-remplis à réclamer (patch pré-inscriptions) */
+async function loadPreseed(){
+  const sel = $('in-pseudo-select');
+  let free = [];
+  try {
+    const { data } = await sb.from('preseed_members').select('pseudo, claimed').order('pseudo');
+    free = (data || []).filter(x => !x.claimed);
+  } catch (_) { /* table absente : saisie libre uniquement */ }
+  sel.innerHTML =
+    free.map(x => `<option value="${esc(x.pseudo)}">${esc(x.pseudo)}</option>`).join('') +
+    `<option value="__autre__">Autre / je ne suis pas dans la liste</option>`;
+  toggleLibre();
+}
+function toggleLibre(){
+  const libre = $('in-pseudo-select').value === '__autre__';
+  $('f-pseudo-libre').classList.toggle('hidden', !libre);
+}
+$('in-pseudo-select').onchange = toggleLibre;
+function chosenPseudo(){
+  const v = $('in-pseudo-select').value;
+  return v === '__autre__' || v === '' ? $('in-pseudo').value.trim() : v;
 }
 $('tab-login').onclick = () => setAuthMode('login');
 $('tab-signup').onclick = () => setAuthMode('signup');
@@ -357,11 +385,19 @@ $('form-auth').onsubmit = async (e) => {
       const { error } = await sb.auth.signInWithPassword({ email, password });
       if (error) throw new Error('Email ou mot de passe incorrect.');
     } else {
+      const pseudo = chosenPseudo();
+      if (!pseudo) throw new Error('Choisis ton profil dans la liste (ou saisis un pseudo).');
+      // vérif fraîche : le profil est-il encore libre ? (le serveur re-vérifie de toute façon)
+      try {
+        const { data: pm } = await sb.from('preseed_members').select('claimed').eq('pseudo', pseudo).maybeSingle();
+        if (pm?.claimed) { await loadPreseed(); throw new Error('Ce profil vient d\'être réclamé par quelqu\'un… règle ça sur le WhatsApp 😄'); }
+      } catch (err) { if (/réclamé/.test(err.message)) throw err; }
       const { data, error } = await sb.auth.signUp({
         email, password,
-        options: { data: { pseudo: $('in-pseudo').value.trim(), invite_code: $('in-code').value.trim() } }
+        options: { data: { pseudo, invite_code: $('in-code').value.trim() } }
       });
       if (error) {
+        if (/reclame/i.test(error.message)) throw new Error('Ce profil a déjà été réclamé par quelqu\'un… règle ça sur le WhatsApp 😄');
         if (/database error|invitation/i.test(error.message)) throw new Error("Code d'invitation invalide. Demande-le sur le WhatsApp de la team 🤫");
         if (/already registered/i.test(error.message)) throw new Error('Un compte existe déjà avec cet email. Onglet Connexion 👆');
         throw new Error(error.message);
