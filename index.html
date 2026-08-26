@@ -112,6 +112,18 @@ main{max-width:640px;margin:0 auto;padding:1rem 1rem calc(env(safe-area-inset-bo
 .avmini.plus{background:var(--ink-3)}
 .livelink{display:inline-flex;align-items:center;gap:.3rem;background:var(--red-soft);color:var(--red-dark);border-radius:999px;padding:.3rem .7rem;font-size:.76rem;font-weight:700;text-decoration:none}
 
+/* ---------- BOÎTE À IDÉES ---------- */
+.sugg{display:flex;gap:.6rem;align-items:flex-start;padding:.55rem 0;border-bottom:1px solid var(--line)}
+.sugg:last-child{border-bottom:none}
+.sugg input[type=checkbox]{width:auto;accent-color:var(--green);transform:scale(1.25);margin-top:.15rem}
+.sugg.done .sg-t{text-decoration:line-through;color:var(--ink-3)}
+.sg-body{flex:1}
+.sg-t{font-size:.88rem}
+.sg-m{font-size:.72rem;color:var(--ink-3);margin-top:2px}
+.sg-m .fait{color:var(--green);font-weight:700}
+.sg-del{color:var(--ink-3);padding:.1rem .3rem;flex-shrink:0}
+.sg-dot{margin-top:.05rem;font-size:.85rem}
+
 /* ---------- TEAM ---------- */
 .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-bottom:1rem}
 .stat{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:.9rem;text-align:center}
@@ -222,6 +234,11 @@ dialog .sub{font-size:.82rem;color:var(--ink-2)}
       <div class="statgrid" id="team-stats"></div>
       <a class="wa" href="https://chat.whatsapp.com/K9TcwaCC3CQ71rPFXcsfMt" target="_blank" rel="noopener">💬 Le WhatsApp de la team</a>
       <div id="members-list"></div>
+      <h2 class="sect">💡 Boîte à idées de l'app</h2>
+      <div class="panel">
+        <div id="sugg-list"></div>
+        <button class="btn btn-red" id="btn-addsugg" style="width:100%;margin-top:.7rem;padding:.6rem">💡 Proposer une amélioration</button>
+      </div>
       <div class="note">Ici on ne classe personne : on court ensemble. 🤝</div>
     </section>
 
@@ -316,6 +333,21 @@ dialog .sub{font-size:.82rem;color:var(--ink-2)}
     </div>
     <a href="#" class="linkdel hidden" id="btn-delpartic">Je n'y vais plus</a>
     <div id="partic-msg" class="msg"></div>
+  </form>
+</dialog>
+
+<!-- ================= DIALOG BOÎTE À IDÉES ================= -->
+<dialog id="dlg-sugg">
+  <h2>Proposer une amélioration 💡</h2>
+  <p class="sub">Horodatée et visible par toute la team. Mathieu coche quand c'est fait.</p>
+  <form id="form-sugg" method="dialog">
+    <label>Ton idée *</label>
+    <textarea id="sg-texte" rows="3" required placeholder="Ex : ajouter les photos finish, un mode covoiturage…"></textarea>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" data-close>Annuler</button>
+      <button type="submit" class="btn btn-red">Envoyer</button>
+    </div>
+    <div id="sugg-msg" class="msg"></div>
   </form>
 </dialog>
 
@@ -462,11 +494,14 @@ async function enterApp(){
 }
 
 /* ================= DATA ================= */
+let suggestions = [];
 async function loadData(){
-  const [p, c] = await Promise.all([
+  const [p, c, s] = await Promise.all([
     sb.from('profiles').select('*').order('created_at'),
-    sb.from('courses').select('*, participations(*, profiles(id, pseudo, strava_url))').order('date_course')
+    sb.from('courses').select('*, participations(*, profiles(id, pseudo, strava_url))').order('date_course'),
+    sb.from('suggestions').select('*, profiles(pseudo)').order('done', { ascending: true }).order('created_at', { ascending: false })
   ]);
+  suggestions = s.data || [];
   const byArrival = p.data || [];
   colorMap = {};
   byArrival.forEach((x, i) => { colorMap[x.id] = PALETTE[i % PALETTE.length]; });
@@ -477,7 +512,50 @@ async function loadData(){
 async function refresh(){ await loadData(); renderAll(); }
 
 /* ================= RENDER ================= */
-function renderAll(){ renderAccueil(); renderCourses(); renderTeam(); renderProfil(); }
+function renderAll(){ renderAccueil(); renderCourses(); renderTeam(); renderSuggestions(); renderProfil(); }
+
+/* ================= BOÎTE À IDÉES ================= */
+function renderSuggestions(){
+  const isAdmin = !!myProfile?.is_admin;
+  const fdate = (iso) => new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  $('sugg-list').innerHTML = suggestions.length ? suggestions.map(s => {
+    const doneInfo = s.done ? ` · <span class="fait">fait${s.done_at ? ' le ' + fdate(s.done_at) : ''} ✅</span>` : '';
+    const canDel = (s.auteur_id === user.id && !s.done) || isAdmin;
+    return `<div class="sugg ${s.done ? 'done' : ''}">
+      ${isAdmin
+        ? `<input type="checkbox" data-sugg="${s.id}" ${s.done ? 'checked' : ''} title="Marquer comme fait">`
+        : `<span class="sg-dot">${s.done ? '✅' : '⏳'}</span>`}
+      <div class="sg-body">
+        <div class="sg-t">${esc(s.texte)}</div>
+        <div class="sg-m">${esc(s.profiles?.pseudo || '?')} · ${fdate(s.created_at)}${doneInfo}</div>
+      </div>
+      ${canDel ? `<button class="sg-del" data-delsugg="${s.id}" title="Supprimer">✕</button>` : ''}
+    </div>`;
+  }).join('') : `<div style="font-size:.85rem;color:var(--ink-3)">Aucune idée pour l'instant… balance la première 💡</div>`;
+
+  document.querySelectorAll('[data-sugg]').forEach(cb => cb.onchange = async () => {
+    const { error } = await sb.from('suggestions')
+      .update({ done: cb.checked, done_at: cb.checked ? new Date().toISOString() : null })
+      .eq('id', cb.dataset.sugg);
+    if (error) { alert(error.message); return; }
+    await refresh();
+  });
+  document.querySelectorAll('[data-delsugg]').forEach(b => b.onclick = async () => {
+    if (!confirm('Supprimer cette idée ?')) return;
+    await sb.from('suggestions').delete().eq('id', b.dataset.delsugg);
+    await refresh();
+  });
+}
+
+$('btn-addsugg').onclick = () => { $('sg-texte').value = ''; $('sugg-msg').className = 'msg'; $('dlg-sugg').showModal(); };
+$('form-sugg').onsubmit = async (e) => {
+  e.preventDefault();
+  const texte = $('sg-texte').value.trim();
+  if (!texte) return;
+  const { error } = await sb.from('suggestions').insert({ auteur_id: user.id, texte });
+  if (error) return showMsg('sugg-msg', error.message);
+  $('dlg-sugg').close(); await refresh();
+};
 
 /* ================= ACCUEIL SAISON ================= */
 function renderAccueil(){
