@@ -94,6 +94,24 @@ main{max-width:640px;margin:0 auto;padding:1rem 1rem calc(env(safe-area-inset-bo
   background:var(--red);color:#fff;border-radius:999px;padding:.85rem 1.2rem;font-weight:800;font-size:.95rem;box-shadow:0 6px 18px rgba(227,24,55,.4)}
 .empty{text-align:center;color:var(--ink-3);padding:3rem 1rem;font-size:.9rem}
 
+/* ---------- ACCUEIL SAISON ---------- */
+.legend{display:flex;flex-wrap:wrap;gap:.3rem;align-items:center;margin:0 .2rem 1rem;font-size:.75rem;color:var(--ink-3)}
+.mhead{display:flex;align-items:baseline;gap:.5rem;margin:1.1rem .2rem .4rem}
+.mhead span{font-size:.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-2)}
+.mhead i{flex:1;border-top:1px solid var(--line)}
+.mhead em{font-style:normal;font-size:.72rem;color:var(--ink-3)}
+.mrow{display:flex;align-items:center;gap:.6rem;background:var(--card);border-radius:12px;padding:.55rem .7rem;margin-bottom:.35rem;box-shadow:var(--shadow);cursor:pointer}
+.mrow .d{font-weight:800;color:var(--red);min-width:28px;font-size:.85rem;text-align:right}
+.mrow .d.tbc{color:var(--amber)}
+.mrow .n{flex:1;font-size:.86rem;font-weight:600;line-height:1.25}
+.mrow .who{display:flex;flex-shrink:0}
+.mrow .none{font-size:.72rem;color:var(--ink-3);flex-shrink:0}
+.avmini{width:20px;height:20px;border-radius:50%;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:800;margin-left:-5px;border:1.5px solid #fff}
+.avmini:first-child{margin-left:0}
+.avmini.prov{border:1.5px dashed var(--amber)}
+.avmini.plus{background:var(--ink-3)}
+.livelink{display:inline-flex;align-items:center;gap:.3rem;background:var(--red-soft);color:var(--red-dark);border-radius:999px;padding:.3rem .7rem;font-size:.76rem;font-weight:700;text-decoration:none}
+
 /* ---------- TEAM ---------- */
 .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-bottom:1rem}
 .stat{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:.9rem;text-align:center}
@@ -183,8 +201,15 @@ dialog .sub{font-size:.82rem;color:var(--ink-2)}
     <div class="t"><b>Team JPPJR</b><span>J'peux pas, j'ai running</span></div>
   </header>
   <main>
+    <!-- ACCUEIL SAISON -->
+    <section id="view-accueil">
+      <div class="statgrid" id="acc-stats"></div>
+      <div class="legend" id="acc-legend"></div>
+      <div id="acc-months"></div>
+    </section>
+
     <!-- COURSES -->
-    <section id="view-courses">
+    <section id="view-courses" class="hidden">
       <div class="segment">
         <button id="seg-up" class="on">À venir</button>
         <button id="seg-past">Déjà courues</button>
@@ -222,7 +247,8 @@ dialog .sub{font-size:.82rem;color:var(--ink-2)}
   <button class="fab hidden" id="fab-add">+ Ajouter une course</button>
 
   <nav id="bottomnav">
-    <button data-nav="courses" class="on"><span class="ico">🏁</span>Courses</button>
+    <button data-nav="accueil" class="on"><span class="ico">🏠</span>Accueil</button>
+    <button data-nav="courses"><span class="ico">🏁</span>Courses</button>
     <button data-nav="team"><span class="ico">👟</span>La team</button>
     <button data-nav="profil"><span class="ico">🙂</span>Profil</button>
   </nav>
@@ -248,6 +274,8 @@ dialog .sub{font-size:.82rem;color:var(--ink-2)}
     </div>
     <label>Lien vers le site d'inscription</label>
     <input id="c-url" type="url" placeholder="https://…">
+    <label>Lien suivi live / résultats 📡</label>
+    <input id="c-urllive" type="url" placeholder="https://livetrail.net/…, chronométreur, tracking…">
     <div class="dlg-actions">
       <button type="button" class="btn btn-ghost" data-close>Annuler</button>
       <button type="submit" class="btn btn-red" id="btn-savecourse">Enregistrer</button>
@@ -313,8 +341,12 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 
 /* ================= HELPERS ================= */
 function initials(p){ return (p || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase(); }
-function colorFor(p){
-  let h = 0; for (const ch of String(p)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+/* Couleur fixe par membre (ordre d'arrivée dans la team), stable même si on change de pseudo */
+const PALETTE = ['#534AB7','#0F6E56','#993C1D','#993556','#185FA5','#3B6D11','#BA7517','#A32D2D','#72243E','#085041'];
+let colorMap = {};
+function colorFor(key){
+  if (colorMap[key]) return colorMap[key];
+  let h = 0; for (const ch of String(key)) h = (h * 31 + ch.charCodeAt(0)) % 360;
   return `hsl(${h} 65% 45%)`;
 }
 function fmtDay(d){ return new Date(d + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric' }); }
@@ -333,8 +365,8 @@ function showMsg(id, text, ok = false){
   const el = $(id); el.textContent = text; el.className = 'msg ' + (ok ? 'ok' : 'err');
   if (ok) setTimeout(() => { el.className = 'msg'; }, 2500);
 }
-function avatarHtml(pseudo, size){
-  return `<span class="av" style="background:${colorFor(pseudo)}${size ? `;width:${size}px;height:${size}px` : ''}">${esc(initials(pseudo))}</span>`;
+function avatarHtml(pseudo, size, uid){
+  return `<span class="av" style="background:${colorFor(uid || pseudo)}${size ? `;width:${size}px;height:${size}px` : ''}">${esc(initials(pseudo))}</span>`;
 }
 
 /* ================= AUTH ================= */
@@ -432,17 +464,75 @@ async function enterApp(){
 /* ================= DATA ================= */
 async function loadData(){
   const [p, c] = await Promise.all([
-    sb.from('profiles').select('*').order('pseudo'),
+    sb.from('profiles').select('*').order('created_at'),
     sb.from('courses').select('*, participations(*, profiles(id, pseudo, strava_url))').order('date_course')
   ]);
-  profiles = p.data || [];
+  const byArrival = p.data || [];
+  colorMap = {};
+  byArrival.forEach((x, i) => { colorMap[x.id] = PALETTE[i % PALETTE.length]; });
+  profiles = byArrival.slice().sort((a, b) => (a.pseudo || '').localeCompare(b.pseudo || ''));
   courses = c.data || [];
   myProfile = profiles.find(x => x.id === user.id) || null;
 }
 async function refresh(){ await loadData(); renderAll(); }
 
 /* ================= RENDER ================= */
-function renderAll(){ renderCourses(); renderTeam(); renderProfil(); }
+function renderAll(){ renderAccueil(); renderCourses(); renderTeam(); renderProfil(); }
+
+/* ================= ACCUEIL SAISON ================= */
+function renderAccueil(){
+  const now = todayStr();
+  const up = courses.filter(c => c.date_course >= now);
+  const next = up[0];
+  let jm = '—';
+  if (next) {
+    const d = Math.round((new Date(next.date_course + 'T12:00:00') - new Date(now + 'T12:00:00')) / 864e5);
+    jm = d === 0 ? 'Jour J !' : 'J-' + d;
+  }
+  $('acc-stats').innerHTML = `
+    <div class="stat"><b>${up.length}</b><span>course${up.length > 1 ? 's' : ''} à venir</span></div>
+    <div class="stat"><b>${jm}</b><span>${next ? 'prochain départ · ' + esc(next.nom) : 'prochain départ'}</span></div>`;
+  $('acc-legend').innerHTML = 'La team : ' + profiles.map(p =>
+    `<span title="${esc(p.pseudo)}">${avatarHtml(p.pseudo, 22, p.id)}</span>`).join('');
+
+  if (!up.length) { $('acc-months').innerHTML = '<div class="empty">Aucune course à venir.<br>Ajoute la première ! 🏁</div>'; return; }
+  const last = up[up.length - 1].date_course;
+  let y = +now.slice(0, 4), m = +now.slice(5, 7);
+  const endY = +last.slice(0, 4), endM = +last.slice(5, 7);
+  let html = '';
+  while (y < endY || (y === endY && m <= endM)) {
+    const key = `${y}-${String(m).padStart(2, '0')}`;
+    const inMonth = up.filter(c => c.date_course.startsWith(key));
+    html += `<div class="mhead"><span>${esc(fmtMonthYear(key + '-15'))}</span><i></i><em>${inMonth.length ? inMonth.length + ' course' + (inMonth.length > 1 ? 's' : '') : '—'}</em></div>`;
+    for (const c of inMonth) html += monthRow(c);
+    m++; if (m > 12) { m = 1; y++; }
+  }
+  $('acc-months').innerHTML = html;
+  $('acc-months').querySelectorAll('[data-goto]').forEach(r => r.onclick = () => gotoCourse(r.dataset.goto));
+}
+
+function monthRow(c){
+  const parts = (c.participations || []).slice().sort((a, b) => (a.profiles?.pseudo || '').localeCompare(b.profiles?.pseudo || ''));
+  const MAX = 5;
+  const avs = parts.slice(0, MAX).map(pt =>
+    `<span class="avmini ${pt.statut === 'provisoire' ? 'prov' : ''}" style="background:${colorFor(pt.membre_id)}" title="${esc(pt.profiles?.pseudo || '')} · ${esc(pt.format)}">${esc(initials(pt.profiles?.pseudo))}</span>`).join('');
+  const more = parts.length > MAX ? `<span class="avmini plus">+${parts.length - MAX}</span>` : '';
+  const tbc = c.date_precise === false;
+  return `<div class="mrow" data-goto="${c.id}">
+    <span class="d ${tbc ? 'tbc' : ''}">${tbc ? '~' : ''}${fmtDay(c.date_course)}</span>
+    <span class="n">${esc(c.nom)}${tbc && c.date_texte ? ` <span style="font-size:.68rem;color:var(--amber)">${esc(c.date_texte)}</span>` : ''}</span>
+    ${parts.length ? `<span class="who">${avs}${more}</span>` : '<span class="none">qui vient ? 👀</span>'}
+  </div>`;
+}
+
+function gotoCourse(id){
+  const c = courses.find(x => x.id === id); if (!c) return;
+  segMode = courseIsPast(c) ? 'past' : 'up';
+  $('seg-up').classList.toggle('on', segMode === 'up');
+  $('seg-past').classList.toggle('on', segMode === 'past');
+  setTab('courses');
+  setTimeout(() => document.getElementById('course-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+}
 
 function courseIsPast(c){ return c.date_course < todayStr(); }
 
@@ -451,7 +541,7 @@ function renderCourses(){
   const now = todayStr();
   let items = courses.filter(c => segMode === 'up' ? c.date_course >= now : c.date_course < now);
   if (segMode === 'past') items = items.slice().reverse();
-  $('fab-add').classList.toggle('hidden', segMode !== 'up');
+  $('fab-add').classList.toggle('hidden', !(activeTab === 'courses' && segMode === 'up'));
 
   if (!items.length) {
     list.innerHTML = `<div class="empty">${segMode === 'up' ? 'Aucune course à venir.<br>Ajoute la première ! 🏁' : 'Pas encore de course courue.'}</div>`;
@@ -480,7 +570,7 @@ function courseCard(c){
     if (past && pt.chrono_final) extra = ` <span class="res">${esc(pt.chrono_final)}</span>`;
     else if (pt.meneur_allure) extra = ' 🐰';
     return `<span class="chip ${pt.statut === 'provisoire' ? 'prov' : ''} ${pt.membre_id === user.id ? 'me' : ''}" title="${esc(pt.objectif || '')}">
-      ${avatarHtml(ps)}${esc(ps)} · ${esc(pt.format)}${extra}</span>`;
+      ${avatarHtml(ps, 0, pt.membre_id)}${esc(ps)} · ${esc(pt.format)}${extra}</span>`;
   }).join('');
 
   const dateLine = c.date_precise === false && c.date_texte
@@ -488,6 +578,7 @@ function courseCard(c){
     : esc(fmtFull(c.date_course));
   const lieu = [c.lieu, c.departement ? `(${c.departement})` : ''].filter(Boolean).join(' ');
   const link = c.url_inscription ? ` · <a href="${esc(c.url_inscription)}" target="_blank" rel="noopener">s'inscrire ↗</a>` : '';
+  const live = c.url_live ? `<a class="livelink" href="${esc(c.url_live)}" target="_blank" rel="noopener">📡 Suivi live / résultats</a>` : '';
 
   let action;
   if (past) {
@@ -500,7 +591,7 @@ function courseCard(c){
       : `<button class="btn btn-red" data-join="${c.id}">🙋 J'y vais</button>`;
   }
 
-  return `<article class="course">
+  return `<article class="course" id="course-${c.id}">
     <div class="head">
       <div class="datebox ${past ? 'past' : ''}"><b>${fmtDay(c.date_course)}</b><span>${esc(fmtMonthShort(c.date_course))}</span></div>
       <div style="flex:1">
@@ -510,7 +601,7 @@ function courseCard(c){
       <button class="editcourse" data-editc="${c.id}" title="Modifier la course">✏️</button>
     </div>
     ${chips ? `<div class="runners">${chips}</div>` : `<div class="runners"><span style="font-size:.78rem;color:var(--ink-3)">Personne pour l'instant… sois le premier 👀</span></div>`}
-    ${action ? `<div class="actions">${action}</div>` : ''}
+    ${action || live ? `<div class="actions">${action}${live}</div>` : ''}
   </article>`;
 }
 
@@ -539,7 +630,7 @@ function renderTeam(){
       ? `Prochain dossard : ${esc(nextOne.nom)}`
       : 'Pas encore de course prévue 👀';
     return `<div class="member">
-      ${avatarHtml(p.pseudo, 40)}
+      ${avatarHtml(p.pseudo, 40, p.id)}
       <div class="inf"><b>${esc(p.pseudo)}${p.id === user.id ? ' (toi)' : ''}</b>
       <span>${mineUp.length} à venir · ${minePast.length} courue${minePast.length > 1 ? 's' : ''} — ${info}</span></div>
       ${p.strava_url
@@ -586,6 +677,7 @@ function openCourseDialog(courseId = null){
   $('c-datetexte').value = c?.date_texte || '';
   $('c-flou-wrap').classList.toggle('hidden', !$('c-flou').checked);
   $('c-url').value = c?.url_inscription || '';
+  $('c-urllive').value = c?.url_live || '';
   $('btn-delcourse').classList.toggle('hidden', !c);
   $('course-msg').className = 'msg';
   $('dlg-course').showModal();
@@ -602,7 +694,8 @@ $('form-course').onsubmit = async (e) => {
     date_course: $('c-date').value,
     date_precise: !$('c-flou').checked,
     date_texte: $('c-flou').checked ? ($('c-datetexte').value.trim() || null) : null,
-    url_inscription: $('c-url').value.trim() || null
+    url_inscription: $('c-url').value.trim() || null,
+    url_live: $('c-urllive').value.trim() || null
   };
   let error;
   if (editingCourseId) ({ error } = await sb.from('courses').update(payload).eq('id', editingCourseId));
@@ -666,12 +759,16 @@ $('btn-delpartic').onclick = async (e) => {
 };
 
 /* ================= NAV & DIVERS ================= */
-document.querySelectorAll('#bottomnav button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('#bottomnav button').forEach(x => x.classList.toggle('on', x === b));
-  ['courses', 'team', 'profil'].forEach(v => $('view-' + v).classList.toggle('hidden', v !== b.dataset.nav));
-  $('fab-add').classList.toggle('hidden', !(b.dataset.nav === 'courses' && segMode === 'up'));
+let activeTab = 'accueil';
+function setTab(tab){
+  activeTab = tab;
+  document.querySelectorAll('#bottomnav button').forEach(x => x.classList.toggle('on', x.dataset.nav === tab));
+  ['accueil', 'courses', 'team', 'profil'].forEach(v => $('view-' + v).classList.toggle('hidden', v !== tab));
+  $('fab-add').classList.toggle('hidden', !(tab === 'courses' && segMode === 'up'));
+  if (tab === 'courses') renderCourses();
   window.scrollTo(0, 0);
-});
+}
+document.querySelectorAll('#bottomnav button').forEach(b => b.onclick = () => setTab(b.dataset.nav));
 $('seg-up').onclick = () => { segMode = 'up'; $('seg-up').classList.add('on'); $('seg-past').classList.remove('on'); renderCourses(); };
 $('seg-past').onclick = () => { segMode = 'past'; $('seg-past').classList.add('on'); $('seg-up').classList.remove('on'); renderCourses(); };
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
